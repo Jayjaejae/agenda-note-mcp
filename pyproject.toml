@@ -1,7 +1,7 @@
 [project]
 name = "mcp-server-agenda"
-version = "0.1.0"
-description = "Interface the agenda note taking software"
+version = "0.2.0"
+description = "MCP server for Agenda app with full x-callback-url support"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [ "mcp>=1.1.1",]
