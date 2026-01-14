@@ -1,10 +1,6 @@
 import asyncio
 import subprocess
-import json
-import os
-import time
 from urllib.parse import quote
-from typing import Any
 from pathlib import Path
 
 from mcp.server.models import InitializationOptions
@@ -23,81 +19,9 @@ server = Server("agenda-note-mcp")
 # Agenda database reader for direct SQLite access
 agenda_db = AgendaDB()
 
-# Callback directory where the helper app writes results
-# Can be overridden via AGENDA_CALLBACK_DIR environment variable
-DEFAULT_CALLBACK_DIR = Path.home() / ".agenda-mcp-callbacks"
-
-
-def get_callback_dir() -> Path:
-    """Get the callback directory from environment or use default."""
-    custom_path = os.environ.get("AGENDA_CALLBACK_DIR")
-    if custom_path:
-        return Path(custom_path)
-    return DEFAULT_CALLBACK_DIR
-
-
-CALLBACK_DIR = get_callback_dir()
-
-
-class CallbackWatcher:
-    """
-    Watches for callback files from the AgendaMCPCallback helper app.
-    The helper app receives x-callback-url responses and writes them to files.
-    """
-
-    def __init__(self, timeout: float = 10.0):
-        self.timeout = timeout
-        self.callback_dir = CALLBACK_DIR
-
-    def _clear_old_callbacks(self):
-        """Clear old callback files before waiting for a new one."""
-        if self.callback_dir.exists():
-            for f in self.callback_dir.glob("callback-*.json"):
-                try:
-                    f.unlink()
-                except Exception:
-                    pass
-            # Also clear latest.json
-            latest = self.callback_dir / "latest.json"
-            if latest.exists():
-                try:
-                    latest.unlink()
-                except Exception:
-                    pass
-
-    async def wait_for_callback(self) -> dict[str, Any]:
-        """Wait for a callback file to appear."""
-        self._clear_old_callbacks()
-
-        # Ensure callback directory exists
-        self.callback_dir.mkdir(parents=True, exist_ok=True)
-
-        start_time = time.time()
-        latest_file = self.callback_dir / "latest.json"
-
-        while time.time() - start_time < self.timeout:
-            if latest_file.exists():
-                try:
-                    with open(latest_file, 'r') as f:
-                        data = json.load(f)
-
-                    # Return the params from the callback
-                    return data.get("params", {})
-                except json.JSONDecodeError:
-                    pass  # File not fully written yet
-                except Exception:
-                    pass
-
-            await asyncio.sleep(0.1)  # Poll every 100ms
-
-        raise TimeoutError(f"Callback not received within {self.timeout} seconds")
-
 
 class XCallbackURLHandler:
     """Handles x-callback-url execution on macOS systems."""
-
-    # Custom URL scheme for callbacks - handled by AgendaMCPCallback.app
-    CALLBACK_SCHEME = "agenda-mcp://callback"
 
     @staticmethod
     def call_url(url: str) -> str:
@@ -114,35 +38,6 @@ class XCallbackURLHandler:
             return result.stdout
         except subprocess.CalledProcessError as e:
             raise RuntimeError(f"Failed to execute x-callback-url: {e}")
-
-    @staticmethod
-    async def call_url_with_callback(base_url: str, params: list[str], timeout: float = 10.0) -> dict[str, Any]:
-        """
-        Execute an x-callback-url and wait for the result via file callback.
-
-        Uses the AgendaMCPCallback helper app which handles the agenda-mcp:// URL scheme
-        and writes callback data to ~/.agenda-mcp-callbacks/latest.json
-        """
-        watcher = CallbackWatcher(timeout=timeout)
-
-        # Add callback URLs using our custom URL scheme
-        callback_url = XCallbackURLHandler.CALLBACK_SCHEME
-        params.append(f"x-success={quote(callback_url)}")
-        params.append(f"x-error={quote(callback_url)}")
-
-        # Build the full URL
-        if params:
-            full_url = f"{base_url}?{'&'.join(params)}"
-        else:
-            full_url = base_url
-
-        # Execute the URL
-        XCallbackURLHandler.call_url(full_url)
-
-        # Wait for the callback file
-        result = await watcher.wait_for_callback()
-
-        return result
 
 
 @server.list_resources()
@@ -311,42 +206,6 @@ async def handle_list_tools() -> list[types.Tool]:
                     "project_title": {"type": "string"},
                     "separate_window": {"type": "boolean"}
                 },
-            },
-        ),
-        # === Data Query Tools (with callback support) ===
-        types.Tool(
-            name="get-identifier",
-            description="Get the identifier of a note or project in Agenda",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "title": {"type": "string", "description": "Title of the note or project"},
-                    "project_title": {"type": "string", "description": "Project title (for notes)"},
-                },
-            },
-        ),
-        types.Tool(
-            name="get-selected-project",
-            description="Get the currently selected project in Agenda",
-            inputSchema={
-                "type": "object",
-                "properties": {},
-            },
-        ),
-        types.Tool(
-            name="get-selected-note",
-            description="Get the currently selected note in Agenda",
-            inputSchema={
-                "type": "object",
-                "properties": {},
-            },
-        ),
-        types.Tool(
-            name="get-selection",
-            description="Get the currently selected item (note or project) in Agenda",
-            inputSchema={
-                "type": "object",
-                "properties": {},
             },
         ),
         # === Creation Tools ===
@@ -619,23 +478,6 @@ def add_int_param(params: list[str], arguments: dict, key: str, url_key: str | N
         params.append(f"{url_key or key}={arguments[key]}")
 
 
-def format_callback_result(result: dict[str, Any]) -> str:
-    """Format the callback result for display."""
-    # Check for error
-    if "errorCode" in result or "errorMessage" in result:
-        error_code = result.get("errorCode", "unknown")
-        error_msg = result.get("errorMessage", "Unknown error")
-        return f"Error ({error_code}): {error_msg}"
-
-    # Format success result
-    output_parts = []
-    for key, value in result.items():
-        if key not in ["x-source"]:  # Skip internal params
-            output_parts.append(f"{key}: {value}")
-
-    return "\n".join(output_parts) if output_parts else "Success (no data returned)"
-
-
 @server.call_tool()
 async def handle_call_tool(
     name: str, arguments: dict | None
@@ -737,51 +579,6 @@ async def handle_call_tool(
             return [types.TextContent(type="text", text=f"Opened note '{desc}' in Agenda")]
         except Exception as e:
             return [types.TextContent(type="text", text=f"Failed to open note: {str(e)}")]
-
-    # === Data Query Tools (with callback support) ===
-    elif name == "get-identifier":
-        params = []
-        add_string_param(params, arguments, "title")
-        add_string_param(params, arguments, "project_title", "project-title")
-
-        base_url = "agenda://x-callback-url/get-identifier"
-        try:
-            result = await XCallbackURLHandler.call_url_with_callback(base_url, params)
-            return [types.TextContent(type="text", text=format_callback_result(result))]
-        except TimeoutError:
-            return [types.TextContent(type="text", text="Timeout waiting for Agenda response")]
-        except Exception as e:
-            return [types.TextContent(type="text", text=f"Failed to get identifier: {str(e)}")]
-
-    elif name == "get-selected-project":
-        base_url = "agenda://x-callback-url/get-selected-project"
-        try:
-            result = await XCallbackURLHandler.call_url_with_callback(base_url, [])
-            return [types.TextContent(type="text", text=format_callback_result(result))]
-        except TimeoutError:
-            return [types.TextContent(type="text", text="Timeout waiting for Agenda response")]
-        except Exception as e:
-            return [types.TextContent(type="text", text=f"Failed to get selected project: {str(e)}")]
-
-    elif name == "get-selected-note":
-        base_url = "agenda://x-callback-url/get-selected-note"
-        try:
-            result = await XCallbackURLHandler.call_url_with_callback(base_url, [])
-            return [types.TextContent(type="text", text=format_callback_result(result))]
-        except TimeoutError:
-            return [types.TextContent(type="text", text="Timeout waiting for Agenda response")]
-        except Exception as e:
-            return [types.TextContent(type="text", text=f"Failed to get selected note: {str(e)}")]
-
-    elif name == "get-selection":
-        base_url = "agenda://x-callback-url/get-selection"
-        try:
-            result = await XCallbackURLHandler.call_url_with_callback(base_url, [])
-            return [types.TextContent(type="text", text=format_callback_result(result))]
-        except TimeoutError:
-            return [types.TextContent(type="text", text="Timeout waiting for Agenda response")]
-        except Exception as e:
-            return [types.TextContent(type="text", text=f"Failed to get selection: {str(e)}")]
 
     # === SQLite-based Read Tools ===
     elif name == "search-notes":
