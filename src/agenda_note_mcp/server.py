@@ -18,7 +18,7 @@ from .agenda_db import AgendaDB
 # Store notes as a simple key-value dict to demonstrate state management
 notes: dict[str, str] = {}
 
-server = Server("mcp-server-agenda")
+server = Server("agenda-note-mcp")
 
 # Agenda database reader for direct SQLite access
 agenda_db = AgendaDB()
@@ -1152,7 +1152,7 @@ async def main():
             read_stream,
             write_stream,
             InitializationOptions(
-                server_name="mcp-server-agenda",
+                server_name="agenda-note-mcp",
                 server_version="0.2.0",
                 capabilities=server.get_capabilities(
                     notification_options=NotificationOptions(),

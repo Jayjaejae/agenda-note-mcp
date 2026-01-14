@@ -64,7 +64,7 @@ Add to your Claude Desktop configuration file:
         "--directory",
         "/path/to/agenda-note-mcp",
         "run",
-        "mcp-server-agenda"
+        "agenda-note-mcp"
       ]
     }
   }
@@ -231,7 +231,7 @@ Full implementation of [Agenda's x-callback-url scheme](https://agenda.community
 uv sync
 
 # Run the server directly
-uv run mcp-server-agenda
+uv run agenda-note-mcp
 
 # Run tests
 uv run pytest
