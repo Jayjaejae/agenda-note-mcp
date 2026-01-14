@@ -1,17 +1,17 @@
 [project]
-name = "mcp-server-agenda"
-version = "0.1.0"
-description = "Interface the agenda note taking software"
+name = "agenda-note-mcp"
+version = "0.2.0"
+description = "MCP server for Agenda app with full x-callback-url and SQLite database support"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [ "mcp>=1.1.1",]
+
 [[project.authors]]
-name = "alexgoller"
-email = "83632450+alexgoller@users.noreply.github.com"
+name = "Jayjaejae"
 
 [build-system]
 requires = [ "hatchling",]
 build-backend = "hatchling.build"
 
 [project.scripts]
-mcp-server-agenda = "mcp_server_agenda:main"
+agenda-note-mcp = "agenda_note_mcp:main"
